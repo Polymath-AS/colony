@@ -1,0 +1,4 @@
+module ColonyCore [system] {
+    header "../../../zig-out/include/colony.h"
+    export *
+}
