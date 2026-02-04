@@ -18,6 +18,17 @@ zig build test     # Run tests
   - `persistence.zig`: SQLite per-workspace storage
   - `c_api.zig`: C ABI exports for Swift/GTK
   - `include/colony.h`: C header for FFI
+  - **apprt/**: Application runtime abstraction (Ghostty-style)
+    - `apprt.zig`: Runtime switching via build_config (none|gtk|swift)
+    - `structs.zig`: Shared types (SurfaceId, SurfaceSize, TerminalSize, ContentScale)
+    - `surface.zig`: Surface state machine and lifecycle
+    - `ipc.zig`: IPC message types and client/server interfaces
+    - `none.zig`: No-op runtime for testing/headless
+    - `swift.zig`: Swift runtime stub (macOS, Swift owns main loop)
+    - `gtk/gtk.zig`: GTK runtime stub (Linux, not yet implemented)
+- **macos/**: Swift package with SwiftUI app
+  - `Sources/Colony/ColonyApp.swift`: App entry point
+  - `Sources/ColonyCore/`: C bridge modulemap
 
 ## Key Concepts
 
