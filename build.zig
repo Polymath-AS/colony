@@ -65,10 +65,14 @@ pub fn build(b: *std.Build) void {
         });
         swift_build.step.dependOn(b.getInstallStep());
 
+        // Run the binary directly (not as .app bundle) so stdout/stderr are visible
         const swift_exec = b.addSystemCommand(&.{
-            "macos/.build/debug/Colony",
+            b.path("macos/.build/debug/Colony").getPath(b),
         });
         swift_exec.step.dependOn(&swift_build.step);
+        // Inherit stdio so logs appear in terminal, don't check exit code
+        swift_exec.stdio = .inherit;
+        swift_exec.setEnvironmentVariable("COLONY_LOG_LEVEL", "debug");
         run_step.dependOn(&swift_exec.step);
     } else {
         const run_msg = b.addSystemCommand(&.{ "echo", "Swift runtime only available on macOS" });

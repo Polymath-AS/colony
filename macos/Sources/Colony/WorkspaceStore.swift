@@ -29,7 +29,7 @@ class WorkspaceStore {
 
     func loadWorkspaces() {
         let count = colony_workspace_count()
-        print("Colony: Loading workspaces (count=\(count))")
+        log.debug("Loading workspaces (count=\(count))")
         guard count > 0 else {
             workspaces = []
             return
@@ -40,7 +40,7 @@ class WorkspaceStore {
 
         let result = colony_workspace_list(&infos, count, &actualCount)
         guard result == COLONY_OK else {
-            print("Colony: Failed to list workspaces: \(result)")
+            log.error("Failed to list workspaces: \(result.rawValue)")
             workspaces = []
             return
         }
@@ -53,36 +53,37 @@ class WorkspaceStore {
                 lastOpened: info.last_opened
             )
         }
-        print("Colony: Loaded \(workspaces.count) workspaces")
+        log.info("Loaded \(workspaces.count) workspaces")
     }
 
     func createWorkspace(name: String, path: String) -> ColonyWorkspaceId? {
-        print("Colony: Creating workspace '\(name)' at \(path)")
+        log.info("Creating workspace '\(name)' at \(path)")
         var wsId = ColonyWorkspaceId()
         let result = colony_workspace_create(name, path, &wsId)
         guard result == COLONY_OK else {
-            print("Colony: Failed to create workspace: \(result)")
+            log.error("Failed to create workspace: \(result.rawValue)")
             return nil
         }
-        print("Colony: Created workspace")
+        log.debug("Created workspace")
         return wsId
     }
 
     func openWorkspace(_ id: ColonyWorkspaceId) {
-        print("Colony: Opening workspace")
+        log.debug("Opening workspace")
         let result = colony_workspace_open(id)
         if result == COLONY_OK {
             currentWorkspaceId = id
+            log.info("Workspace opened")
         } else {
-            print("Colony: Failed to open workspace: \(result)")
+            log.error("Failed to open workspace: \(result.rawValue)")
         }
     }
 
     func deleteWorkspace(_ id: ColonyWorkspaceId) {
-        print("Colony: Deleting workspace")
+        log.info("Deleting workspace")
         let result = colony_workspace_delete(id)
         if result != COLONY_OK {
-            print("Colony: Failed to delete workspace: \(result)")
+            log.error("Failed to delete workspace: \(result.rawValue)")
         }
     }
 }
