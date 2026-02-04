@@ -1,5 +1,7 @@
 const std = @import("std");
 const workspace = @import("workspace.zig");
+const pty_mod = @import("pty.zig");
+const log = @import("log.zig").scoped(.session);
 
 pub const SessionId = extern struct {
     bytes: [16]u8,
@@ -56,8 +58,16 @@ pub const Session = struct {
     env: std.StringHashMap([]const u8),
     scrollback_lines: u32 = 10000,
 
+    pty: ?*pty_mod.Pty = null,
+
     input_callback: ?*const fn (sess: *Session, data: []const u8) void = null,
     input_callback_ctx: ?*anyopaque = null,
+
+    output_callback: ?*const fn (sess: *Session, data: []const u8) void = null,
+    output_callback_ctx: ?*anyopaque = null,
+
+    exit_callback: ?*const fn (sess: *Session, exit_code: i32) void = null,
+    exit_callback_ctx: ?*anyopaque = null,
 
     pub fn create(allocator: std.mem.Allocator, ws_id: workspace.WorkspaceId) !*Session {
         const sess = try allocator.create(Session);
@@ -101,12 +111,87 @@ pub const Session = struct {
     pub fn resize(self: *Session, cols: u16, rows: u16) void {
         self.size = .{ .cols = cols, .rows = rows };
         self.updated_at = std.time.timestamp();
+        if (self.pty) |pty| {
+            pty.resize(cols, rows);
+        }
     }
 
     pub fn start(self: *Session) !void {
         if (self.state != .created) return error.InvalidSessionState;
         self.state = .running;
         self.updated_at = std.time.timestamp();
+        log.info("session started id={s}", .{&self.id.toString()});
+    }
+
+    pub fn spawnShell(self: *Session) !void {
+        if (self.state != .created and self.state != .running) {
+            log.warn("cannot spawn shell in state={d}", .{@intFromEnum(self.state)});
+            return error.InvalidSessionState;
+        }
+        if (self.pty != null) {
+            log.warn("pty already spawned", .{});
+            return error.AlreadySpawned;
+        }
+
+        const shell = self.shell orelse "/bin/zsh";
+        log.info("spawning shell={s} cwd={s}", .{ shell, self.cwd orelse "(none)" });
+
+        const pty = try pty_mod.Pty.open(self.allocator);
+        errdefer pty.close();
+
+        try pty.spawn(
+            shell,
+            self.cwd,
+            &self.env,
+            .{ .cols = self.size.cols, .rows = self.size.rows },
+        );
+
+        self.pty = pty;
+        self.state = .running;
+        self.updated_at = std.time.timestamp();
+
+        log.info("shell spawned for session id={s}", .{&self.id.toString()});
+    }
+
+    pub fn pollOutput(self: *Session) !?[]const u8 {
+        const pty = self.pty orelse return null;
+
+        if (pty.waitExit()) |code| {
+            log.info("shell exited code={d}", .{code});
+            self.terminateWithCode(code);
+            return null;
+        }
+
+        var buf: [4096]u8 = undefined;
+        const n = try pty.read(&buf);
+        if (n == 0) return null;
+
+        if (self.output_callback) |cb| {
+            cb(self, buf[0..n]);
+        }
+
+        return null;
+    }
+
+    pub fn getPtyFd(self: *Session) ?std.posix.fd_t {
+        return if (self.pty) |p| p.getMasterFd() else null;
+    }
+
+    fn terminateWithCode(self: *Session, code: i32) void {
+        self.state = .terminated;
+        self.exit_code = code;
+        self.updated_at = std.time.timestamp();
+
+        if (self.pty) |pty| {
+            pty.close();
+            self.pty = null;
+        }
+
+        if (self.exit_callback) |cb| {
+            cb(self, code);
+        }
+
+        log.info("session terminated id={s} code={d}", .{ &self.id.toString(), code });
     }
 
     pub fn suspend_(self: *Session) !void {
@@ -141,6 +226,13 @@ pub const Session = struct {
 
     pub fn writeInput(self: *Session, data: []const u8) void {
         if (self.state != .running) return;
+
+        if (self.pty) |pty| {
+            _ = pty.write(data) catch |e| {
+                log.err("write to pty failed: {}", .{e});
+            };
+        }
+
         if (self.input_callback) |cb| {
             cb(self, data);
         }
@@ -155,7 +247,30 @@ pub const Session = struct {
         self.input_callback_ctx = ctx;
     }
 
+    pub fn setOutputCallback(
+        self: *Session,
+        callback: ?*const fn (sess: *Session, data: []const u8) void,
+        ctx: ?*anyopaque,
+    ) void {
+        self.output_callback = callback;
+        self.output_callback_ctx = ctx;
+    }
+
+    pub fn setExitCallback(
+        self: *Session,
+        callback: ?*const fn (sess: *Session, exit_code: i32) void,
+        ctx: ?*anyopaque,
+    ) void {
+        self.exit_callback = callback;
+        self.exit_callback_ctx = ctx;
+    }
+
     pub fn deinit(self: *Session) void {
+        if (self.pty) |pty| {
+            pty.close();
+            self.pty = null;
+        }
+
         if (self.cwd) |c| self.allocator.free(c);
         if (self.shell) |s| self.allocator.free(s);
         if (self.title) |t| self.allocator.free(t);

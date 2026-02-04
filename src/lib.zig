@@ -3,6 +3,8 @@ pub const session = @import("session.zig");
 pub const persistence = @import("persistence.zig");
 pub const registry = @import("registry.zig");
 pub const apprt = @import("apprt/apprt.zig");
+pub const pty = @import("pty.zig");
+pub const log = @import("log.zig");
 
 pub const c_api = @import("c_api.zig");
 

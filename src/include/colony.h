@@ -57,6 +57,7 @@ typedef enum {
 // Lifecycle
 ColonyResult colony_init(const char* config_dir);
 void colony_shutdown(void);
+void colony_set_log_level(int level); // 0=error, 1=warn, 2=info, 3=debug
 
 // Workspace management
 ColonyResult colony_workspace_create(const char* name, const char* path, ColonyWorkspaceId* out_id);
@@ -69,7 +70,10 @@ size_t colony_workspace_count(void);
 // Session management
 ColonyResult colony_session_create(ColonyWorkspaceId ws_id, ColonySessionId* out_id);
 ColonyResult colony_session_start(ColonyWorkspaceId ws_id, ColonySessionId sess_id);
+ColonyResult colony_session_spawn(ColonyWorkspaceId ws_id, ColonySessionId sess_id);
 ColonyResult colony_session_terminate(ColonyWorkspaceId ws_id, ColonySessionId sess_id, int exit_code);
+int colony_session_get_pty_fd(ColonyWorkspaceId ws_id, ColonySessionId sess_id);
+ColonyResult colony_session_poll_output(ColonyWorkspaceId ws_id, ColonySessionId sess_id, uint8_t* out_buf, size_t buf_len, size_t* out_len);
 ColonyResult colony_session_resize(ColonyWorkspaceId ws_id, ColonySessionId sess_id, uint16_t cols, uint16_t rows);
 ColonyResult colony_session_bind_ghostty(ColonyWorkspaceId ws_id, ColonySessionId sess_id, void* handle);
 ColonyResult colony_session_set_cwd(ColonyWorkspaceId ws_id, ColonySessionId sess_id, const char* cwd);

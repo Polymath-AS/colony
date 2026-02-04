@@ -2,6 +2,7 @@ const std = @import("std");
 const workspace = @import("workspace.zig");
 const session = @import("session.zig");
 const registry = @import("registry.zig");
+const log = @import("log.zig");
 
 var global_allocator: std.mem.Allocator = std.heap.page_allocator;
 var global_registry: ?*registry.Registry = null;
@@ -64,7 +65,18 @@ export fn colony_init(config_dir: [*:0]const u8) ColonyResult {
         return .err_io;
     };
 
+    log.info("colony initialized config_dir={s}", .{dir});
     return .ok;
+}
+
+export fn colony_set_log_level(level: c_int) void {
+    const lvl: log.Level = switch (level) {
+        0 => .err,
+        1 => .warn,
+        2 => .info,
+        else => .debug,
+    };
+    log.setLevel(lvl);
 }
 
 export fn colony_shutdown() void {
@@ -182,6 +194,78 @@ export fn colony_session_start(
     sess.start() catch return .err_invalid_state;
     ws.persistSession(sess) catch return .err_io;
 
+    return .ok;
+}
+
+export fn colony_session_spawn(
+    ws_id: ColonyWorkspaceId,
+    sess_id: ColonySessionId,
+) ColonyResult {
+    const reg = global_registry orelse return .err_not_initialized;
+
+    const wid = workspace.WorkspaceId{ .bytes = ws_id.bytes };
+    const ws = reg.getWorkspace(wid) orelse return .err_not_found;
+
+    const sid = session.SessionId{ .bytes = sess_id.bytes };
+    const sess = ws.getSession(sid) orelse return .err_not_found;
+
+    sess.spawnShell() catch |e| {
+        log.scoped(.c_api).err("session spawn failed: {}", .{e});
+        return .err_invalid_state;
+    };
+    ws.persistSession(sess) catch return .err_io;
+
+    return .ok;
+}
+
+export fn colony_session_get_pty_fd(
+    ws_id: ColonyWorkspaceId,
+    sess_id: ColonySessionId,
+) c_int {
+    const reg = global_registry orelse return -1;
+
+    const wid = workspace.WorkspaceId{ .bytes = ws_id.bytes };
+    const ws = reg.getWorkspace(wid) orelse return -1;
+
+    const sid = session.SessionId{ .bytes = sess_id.bytes };
+    const sess = ws.getSession(sid) orelse return -1;
+
+    return sess.getPtyFd() orelse -1;
+}
+
+export fn colony_session_poll_output(
+    ws_id: ColonyWorkspaceId,
+    sess_id: ColonySessionId,
+    out_buf: [*]u8,
+    buf_len: usize,
+    out_len: *usize,
+) ColonyResult {
+    const reg = global_registry orelse return .err_not_initialized;
+
+    const wid = workspace.WorkspaceId{ .bytes = ws_id.bytes };
+    const ws = reg.getWorkspace(wid) orelse return .err_not_found;
+
+    const sid = session.SessionId{ .bytes = sess_id.bytes };
+    const sess = ws.getSession(sid) orelse return .err_not_found;
+
+    const pty = sess.pty orelse {
+        out_len.* = 0;
+        return .ok;
+    };
+
+    if (pty.waitExit()) |code| {
+        sess.terminate(code);
+        ws.persistSession(sess) catch {};
+        out_len.* = 0;
+        return .ok;
+    }
+
+    const n = pty.read(out_buf[0..buf_len]) catch {
+        out_len.* = 0;
+        return .err_io;
+    };
+
+    out_len.* = n;
     return .ok;
 }
 
