@@ -1,0 +1,11 @@
+.{
+    .name = .colony,
+    .version = "0.1.0",
+    .fingerprint = 0xc41c77dc0bd32b8d,
+    .minimum_zig_version = "0.14.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "core",
+    },
+}
